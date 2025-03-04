@@ -1,12 +1,16 @@
 from flask import Flask
-from .config import Config
+from .config import TestConfig, DevConfig
 from .extensions import mongo, cors
 from .stock_routes import stock_blueprint
 from .user_routes import user_blueprint
 
-def create_app():
+def create_app(config_mode):
     app = Flask(__name__)
-    app.config.from_object(Config)
+    
+    if config_mode == 'test':
+        app.config.from_object(TestConfig)
+    else:
+        app.config.from_object(DevConfig)
     
     # Initialize extensions
     mongo.init_app(app)

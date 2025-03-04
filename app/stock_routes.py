@@ -9,28 +9,57 @@ stock_blueprint = Blueprint('api', __name__)
 @stock_blueprint.route('/search/<query>', methods=['GET'])
 def search_stock(query):
     '''Searches market for stocks based on the query given.
+    Args:
+        query (str): A stock's ticker name (partial or full) as a string.
+
+    Returns:
+        JSON response:
+        - 200 OK: Returns a json containing a list of stocks(as Json objects ) under the key "bestMatches".
+        eg: 
+        {"bestMatches": [
+        {
+            "1. symbol": "AAPL",
+            "2. name": "Apple Inc",
+            "3. type": "Equity",
+            "4. region": "United States",
+            "5. marketOpen": "09:30",
+            "6. marketClose": "16:00",
+            "7. timezone": "UTC-04",
+            "8. currency": "USD",
+            "9. matchScore": "1.0000"
+        },
+        {
+            "1. symbol": "AAPL.TRT",
+            "2. name": "Apple CDR (CAD Hedged)",
+            "3. type": "Equity",
+            ...
+        },
+        ..,
+        ]} 
+        - If no portfolio is found, returns an empty list.
+
     '''
 
     url = current_app.config['API_URL']+'function=SYMBOL_SEARCH&keywords='+query+'&apikey='+current_app.config['STOCK_API_KEY']
     response = requests.get(url)
     return response.json()    
 
-@stock_blueprint.route('/intraday', methods=['GET'])
-def get_intraday():
+@stock_blueprint.route('/intraday/<ticker>', methods=['GET'])
+def get_intraday(ticker):
     ''' Returns Intraday prices for a stock in 5mins intervals.
         Includes Meta-data and values like high, low, open, close and volume for that interval.
          Output format similar to 'daily' route.
     '''
 
     url = (current_app.config['API_URL'] +
-            'function=TIME_SERIES_INTRADAY&symbol=IBM&interval=5min&apikey=' +
+            'function=TIME_SERIES_INTRADAY&symbol='+ticker+'&interval=5min&apikey=' +
             current_app.config['STOCK_API_KEY'])
     
     response = requests.get(url)
     return response.json()    
 
-@stock_blueprint.route('/daily', methods=['GET'])
-def get_daily():
+@stock_blueprint.route('/daily/<ticker>', methods=['GET'])
+def get_daily(ticker):
     ''' Returns daily prices for a stock.
     Includes Meta-data and values like high, low, open, close and volume for that interval.
     Eg:
@@ -46,17 +75,25 @@ def get_daily():
     ...}
     '''
 
-    url = current_app.config['API_URL']+'function=TIME_SERIES_DAILY&symbol=IBM&interval=5min&apikey='+current_app.config['STOCK_API_KEY']
+    url = current_app.config['API_URL']+'function=TIME_SERIES_DAILY&symbol='+ticker+'&interval=5min&apikey='+current_app.config['STOCK_API_KEY']
     response = requests.get(url)
-    return response.json()    
+    return response.json(), 200    
 
-@stock_blueprint.route('/history', methods=['GET'])
-def get_history():
-    ''' Returns information on expired Options contracts '''
+@stock_blueprint.route('/history/<ticker>', methods=['GET'])
+def get_history(ticker):
+    ''' Returns information on expired Options contracts 
+        
+        Args:
+            ticker (str): Ticker name of the share to be searched.
+        
+        Returns:
+            Returns a JSON containing the keys "Time Series (5min)" and "Meta Data" about the stock ticker.
 
-    url = current_app.config['API_URL']+'function=HISTORICAL_OPTIONS&symbol=IBM&date=2025-02-20&&apikey='+current_app.config['STOCK_API_KEY']
-    r = requests.get(url)
-    return r.json()    
+    '''
+
+    url = current_app.config['API_URL']+'function=HISTORICAL_OPTIONS&symbol='+ticker+'&date=2025-02-20&&apikey='+current_app.config['STOCK_API_KEY']
+    response = requests.get(url)
+    return response.json(), 200
 
 ################### pending correction
 @stock_blueprint.route('/portfolio/<userid>', methods=['GET'])
@@ -84,15 +121,17 @@ def get_portfolio(userid):
         }
     ]
     '''
+    if not ObjectId.is_valid(userid):
+        return jsonify({'error':"Invalid ObjectId"}), 400
     portfolio = mongo.db.portfolio.find({'user_id':ObjectId(userid)},{'user_id':0,'_id':0})
-    return jsonify(portfolio)
+    return jsonify(portfolio),200
 
 @stock_blueprint.route('/buystock', methods=['POST'])
 def buy_stock():
     ''' Adds a stock's shares to a user's portfolio.
         Adds quantity to stock's qua
         Required parameters:
-        stock: stock ticker name (string),
+        ticker: stock ticker name (string),
         quantity: quantity (int),
         'user_id': user id in (string)
     
@@ -101,11 +140,11 @@ def buy_stock():
     data = request.get_json()
 
     # fetching current ticker price for the stock.
-    url = current_app.config['API_URL']+'function=GLOBAL_QUOTE&symbol='+data['stock']+'&apikey='+current_app.config['STOCK_API_KEY']
+    url = current_app.config['API_URL']+'function=GLOBAL_QUOTE&symbol='+data['ticker']+'&apikey='+current_app.config['STOCK_API_KEY']
     api_response = requests.get(url).json()
     stock_price = float(api_response['Global Quote']['05. price'])
     
-    mongo.db.portfolio.update_one({"user_id":ObjectId(data['user_id']),'ticker':data['stock']},
+    mongo.db.portfolio.update_one({"user_id":ObjectId(data['user_id']),'ticker':data['ticker']},
                                     {   
                                         # '$set':{'ticker': data['stock']},
                                         '$inc':{'quantity':data['quantity'],
@@ -118,24 +157,24 @@ def buy_stock():
 def sell_stock():
     ''' Sells a stock's shares from a user's portfolio.
     Required parameters:
-        stock: stock ticker name (string),
+        ticker: stock ticker name (string),
         quantity: quantity (int),
         'user_id': user id in (string)
     '''
     data = request.get_json()
-    stock_data = mongo.db.portfolio.find_one( { "user_id":ObjectId(data['user_id']),'ticker':data['stock']})
+    stock_data = mongo.db.portfolio.find_one( { "user_id":ObjectId(data['user_id']),'ticker':data['ticker']})
     
     # Checking for stock in portfolio
     if stock_data == None:
-        return jsonify({"message":"Error! No shares held in "+data['stock']}),404
+        return jsonify({"message":"Error! No shares held in "+data['ticker']}),400
     
     if stock_data['quantity'] < data['quantity']:
-        return jsonify({"message":"Error! Insuffient share held in "+data['stock']}),400
+        return jsonify({"message":"Error! Insuffient share held in "+data['ticker']}),400
 
-    url = current_app.config['API_URL']+'function=GLOBAL_QUOTE&symbol='+data['stock']+'&apikey='+current_app.config['STOCK_API_KEY']
+    url = current_app.config['API_URL']+'function=GLOBAL_QUOTE&symbol='+data['ticker']+'&apikey='+current_app.config['STOCK_API_KEY']
     api_response = requests.get(url).json()
 
-    mongo.db.portfolio.update_many( { "user_id":ObjectId(data['user_id']),'ticker':data['stock']},
+    mongo.db.portfolio.update_many( { "user_id":ObjectId(data['user_id']),'ticker':data['ticker']},
                                     [
 
                                     # Updates cost_price to reflect original cost of remaining using the formula below,

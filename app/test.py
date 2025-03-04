@@ -1,2 +1,2 @@
-import config
-print(config.xyz)
+from extensions import mongo
+print(mongo.db)

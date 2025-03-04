@@ -8,9 +8,9 @@ user_blueprint = Blueprint('users', __name__)
 def get_users():
     ''' Returns all users'''
 
-    users = mongo.db.users.find()  # Fetch all users
+    users = mongo.db.users.find({})  # Fetch all users
                         #    ,{"_id": {"$toString": "$_id"},"email":1,"username":1})  # Projects user data with _id converted to String from ObjectId    
-    return jsonify(users)
+    return jsonify(users),200
 
 @user_blueprint.route('/<id>', methods=['GET'])
 def get_user_by_id(id):
@@ -25,12 +25,11 @@ def get_user_by_id(id):
         - 200 OK: If the user is found, returns the user data with `_id` as a string.
         - 404 Not Found: If the user does not exist, returns an error message.
     """
-    print(id)
     user = mongo.db.users.find_one({"_id":ObjectId(id)})
                             #    ,{"_id": {"$toString": "$_id"},"email":1,"username":1})  # Projects user data with _id converted to String from ObjectId
 
     if user == None:
-        return jsonify({'message':"No user found!"}),404
+        return jsonify({'error':"User not found"}),404
     
     return jsonify(user)
 
@@ -88,7 +87,7 @@ def update_user(userid):
         return jsonify({"error": "No data provided for update"}), 400
 
     # Remove empty values from update data
-    update_fields = {key: value for key, value in data.items() if value}
+    update_fields = {key: value for key, value in data.items() if value and value!=''}
     
     if not update_fields:
         return jsonify({"error": "No valid fields to update"}), 400
@@ -106,25 +105,3 @@ def update_user(userid):
 
     return jsonify({"error": "User not found"}), 404
 
-
-@user_blueprint.route('/deleteuser/<userid>', methods=['DELETE'])
-def delete_user(userid):
-    """
-    Delete a user by their ID.
-
-    Args:
-        userid (str): The ObjectId of the user as a string.
-
-    Returns:
-        JSON response:
-        - 200 OK: If the user is successfully deleted.
-        - 404 Not Found: If the user does not exist.
-    """
-
-     
-    result = mongo.db.users.delete_one({"_id": ObjectId(userid)})
-
-    if result.deleted_count > 0:
-        return jsonify({"message": "User deleted successfully"}), 200
-
-    return jsonify({"error": "User not found"}), 404
