@@ -9,7 +9,7 @@ stock_blueprint = Blueprint('api', __name__)
 @stock_blueprint.route('/search/<query>', methods=['GET'])
 def search_stock(query):
     '''Searches market for stocks based on the query given.
-    Args:
+    Args:   
         query (str): A stock's ticker name (partial or full) as a string.
 
     Returns:
@@ -44,40 +44,41 @@ def search_stock(query):
     response = requests.get(url)
     return response.json()    
 
-@stock_blueprint.route('/intraday/<ticker>', methods=['GET'])
+@stock_blueprint.route('/info/<ticker>', methods=['GET'])
 def get_intraday(ticker):
     ''' Returns Intraday prices for a stock in 5mins intervals.
         Includes Meta-data and values like high, low, open, close and volume for that interval.
-         Output format similar to 'daily' route.
-    '''
+        Output format similar to 'daily' route.
 
+        Args:
+        'frequency': frequency of prices to be displayed. ('INTRADAY','DAILY')
+        
+        Returns:
+            Meta of the stock and price information for frequency specified
+        Eg:
+        {
+            "Meta Data":{...} ,
+            "Time Series (5min)": {
+            "2025-02-25 19:55:00": {
+            "1. open": "258.6500",
+            "2. high": "258.6600",
+            "3. low": "258.0472",
+            "4. close": "258.0472",
+            "5. volume": "28"
+            },
+        ...}
+    '''
+    data = request.get_json()
+    if data['frequency'] == None:
+        return jsonify({ "error": "Frequency not specified"})
+    if data['frequency'] not in ['INTRADAY','DAILY']:
+        return jsonify({ "error": "Invalid frequency", "frequency":data['frequency']})
     url = (current_app.config['API_URL'] +
-            'function=TIME_SERIES_INTRADAY&symbol='+ticker+'&interval=5min&apikey=' +
+            'function=TIME_SERIES_'+data['frequency']+'&symbol='+ticker+'&interval=5min&apikey=' +
             current_app.config['STOCK_API_KEY'])
     
     response = requests.get(url)
     return response.json()    
-
-@stock_blueprint.route('/daily/<ticker>', methods=['GET'])
-def get_daily(ticker):
-    ''' Returns daily prices for a stock.
-    Includes Meta-data and values like high, low, open, close and volume for that interval.
-    Eg:
-    {"Meta Data":{...} ,
-     "Time Series (5min)": {
-    "2025-02-25 19:55:00": {
-      "1. open": "258.6500",
-      "2. high": "258.6600",
-      "3. low": "258.0472",
-      "4. close": "258.0472",
-      "5. volume": "28"
-    },
-    ...}
-    '''
-
-    url = current_app.config['API_URL']+'function=TIME_SERIES_DAILY&symbol='+ticker+'&interval=5min&apikey='+current_app.config['STOCK_API_KEY']
-    response = requests.get(url)
-    return response.json(), 200    
 
 @stock_blueprint.route('/history/<ticker>', methods=['GET'])
 def get_history(ticker):
@@ -95,7 +96,7 @@ def get_history(ticker):
     response = requests.get(url)
     return response.json(), 200
 
-################### pending correction
+
 @stock_blueprint.route('/portfolio/<userid>', methods=['GET'])
 def get_portfolio(userid):
     '''
@@ -126,41 +127,76 @@ def get_portfolio(userid):
     portfolio = mongo.db.portfolio.find({'user_id':ObjectId(userid)},{'user_id':0,'_id':0})
     return jsonify(portfolio),200
 
-@stock_blueprint.route('/buystock', methods=['POST'])
-def buy_stock():
-    ''' Adds a stock's shares to a user's portfolio.
-        Adds quantity to stock's qua
-        Required parameters:
-        ticker: stock ticker name (string),
-        quantity: quantity (int),
-        'user_id': user id in (string)
-    
-    '''
+@stock_blueprint.route('/orders', methods=['POST'])
+def stock_orders():
+    ''' Adds a stock order with the current ticker price and updates portfolio.
 
+        Required parameters:
+            action: string mentioning 'buy' or 'sell' to denote the action for the order
+            ticker: stock ticker name (string),
+            quantity: quantity (int),
+            user_id: user id in (string)
+        
+        Returns:
+            A JSON containing a success or error message with relevant information.
+    '''
     data = request.get_json()
 
     # fetching current ticker price for the stock.
     url = current_app.config['API_URL']+'function=GLOBAL_QUOTE&symbol='+data['ticker']+'&apikey='+current_app.config['STOCK_API_KEY']
     api_response = requests.get(url).json()
     stock_price = float(api_response['Global Quote']['05. price'])
+
+    portfolio_data = mongo.db.portfolio.find_one( { "user_id":ObjectId(data['user_id']),'ticker':data['ticker']})    
     
+    if data['action'] == 'buy':
+        if portfolio_data == None:
+            new_quantity = data['quantity'] 
+            new_cost_price = data['quantity']*stock_price 
+        else:
+            new_quantity = data['quantity'] + portfolio_data['quantity']
+            new_cost_price = data['quantity']*stock_price + portfolio_data['cost_price']
+
+    elif data['action'] == 'sell':
+        
+        if portfolio_data == None:
+            return jsonify({ "error": "No shares held in the stock" }), 400    
+        if portfolio_data['quantity'] < data['quantity']:
+            return jsonify({ "error": "Insufficient quantity!", "quantity available": portfolio_data['quantity'] }), 400
+        
+        new_quantity = data['quantity'] - portfolio_data['quantity']
+        new_cost_price = portfolio_data['quantity']*portfolio_data['cost_price'] + data['quantity']*stock_price
+
+    else:
+        return jsonify({"error":"Invalid action!","action":data['action'] }), 400
+
+
+    # inserts order data into a separate orders collection
+    order_id = mongo.db.orders.insert_one({**data, "user_id": ObjectId(data['user_id']), "price": stock_price }).inserted_id
+
+    # updates portfolio to reflect newly purchased stocks
     mongo.db.portfolio.update_one({"user_id":ObjectId(data['user_id']),'ticker':data['ticker']},
                                     {   
-                                        # '$set':{'ticker': data['stock']},
-                                        '$inc':{'quantity':data['quantity'],
-                                                'cost_price':data['quantity']*stock_price 
+                                        '$set':{'quantity':new_quantity,
+                                                'cost_price':new_cost_price
                                                 }
                                     },upsert=True)
-    return jsonify({"message":"Stock added","cost":data['quantity']*stock_price })
-
-@stock_blueprint.route('/sellstock', methods=['POST'])
+    
+    return jsonify({"message": "Order added and portfolio updated!", 
+                    "order ID": str(order_id),
+                    "ticker": data['ticker'], 
+                    "quantity": data['quantity'], 
+                    "order price": stock_price }), 201
+'''
+@stock_blueprint.route('/orders', methods=['POST'])
 def sell_stock():
-    ''' Sells a stock's shares from a user's portfolio.
-    Required parameters:
-        ticker: stock ticker name (string),
-        quantity: quantity (int),
-        'user_id': user id in (string)
-    '''
+    # stock's shares from a user's portfolio.
+
+    # Required parameters:
+    #     ticker: stock ticker name (string),
+    #     quantity: quantity (int),
+    #     'user_id': user id in (string)
+    
     data = request.get_json()
     stock_data = mongo.db.portfolio.find_one( { "user_id":ObjectId(data['user_id']),'ticker':data['ticker']})
     
@@ -171,9 +207,14 @@ def sell_stock():
     if stock_data['quantity'] < data['quantity']:
         return jsonify({"message":"Error! Insuffient share held in "+data['ticker']}),400
 
+    # adds the sell order to orders collection
+    mongo.db.orders.insert_one({**data, "user_id":ObjectId(data['user_id'])})
+
+    # fetches current price of the ticker to calculate profit from purchase
     url = current_app.config['API_URL']+'function=GLOBAL_QUOTE&symbol='+data['ticker']+'&apikey='+current_app.config['STOCK_API_KEY']
     api_response = requests.get(url).json()
 
+    # Updates portfolio to reflect sale
     mongo.db.portfolio.update_many( { "user_id":ObjectId(data['user_id']),'ticker':data['ticker']},
                                     [
 
@@ -204,4 +245,29 @@ def sell_stock():
 
     return jsonify({"message":"stock sold!",
                     "price of shares sold":data['quantity']*float(api_response['Global Quote']['05. price'])})
+'''
+@stock_blueprint.route('/orders/<userid>', methods=['GET'])
+def get_order_history(userid):
+    ''' Returns information on expired Options contracts 
+        
+        Args:
+            userid (str): ObjectId of the user as a string.
+        
+        Returns:
+            List of json objects containing order information.
 
+    '''
+
+    order_list  = mongo.db.orders.find({"user_id":ObjectId(userid)},
+                                                { "orderDate": { "$convert": { "input": "$_id", "to": "date" } },
+                                                    "ticker": 1,
+                                                    "quantity": 1,
+                                                    "price": 1
+                                                    }) 
+    
+    # order_list  = mongo.db.orders.aggregate([
+    # { "$match": { "user_id": ObjectId(userid) } },
+    # { "$project": { "timestamp": { "$toDate": "$_id" } }} 
+    # ])
+    
+    return jsonify(order_list), 200

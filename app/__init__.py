@@ -21,7 +21,7 @@ def create_app(config_mode):
         return "Ye the server is working!!"
 
     # Register blueprints
-    app.register_blueprint(stock_blueprint, url_prefix='/stock')
+    app.register_blueprint(stock_blueprint, url_prefix='/stocks')
     app.register_blueprint(user_blueprint, url_prefix='/users')
 
     return app

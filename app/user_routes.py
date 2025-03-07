@@ -35,7 +35,7 @@ def get_user_by_id(id):
 
 
 # Create a new user
-@user_blueprint.route('/adduser', methods=['POST'])
+@user_blueprint.route('/', methods=['POST'])
 def create_user():
     """
     Create a new user.
@@ -61,7 +61,7 @@ def create_user():
 
     return jsonify({"id": str(inserted_id), **new_user}), 201
 
-@user_blueprint.route('/updateuser/<userid>', methods=['PUT'])
+@user_blueprint.route('/<userid>', methods=['PATCH'])
 def update_user(userid):
     """
     Update an existing user's information.
