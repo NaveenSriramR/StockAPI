@@ -7,7 +7,7 @@ from bson.objectid import ObjectId
 stock_blueprint = Blueprint('api', __name__)
 
 @stock_blueprint.route('/search/<query>', methods=['GET'])
-def search_stock(query):
+def stock_search(query):
     '''Searches market for stocks based on the query given.
     Args:   
         query (str): A stock's ticker name (partial or full) as a string.
@@ -45,7 +45,7 @@ def search_stock(query):
     return response.json()    
 
 @stock_blueprint.route('/info/<ticker>', methods=['GET'])
-def get_intraday(ticker):
+def get_stock_info(ticker):
     ''' Returns Intraday prices for a stock in 5mins intervals.
         Includes Meta-data and values like high, low, open, close and volume for that interval.
         Output format similar to 'daily' route.
@@ -128,7 +128,7 @@ def get_portfolio(userid):
     return jsonify(portfolio),200
 
 @stock_blueprint.route('/orders', methods=['POST'])
-def stock_orders():
+def create_orders():
     ''' Adds a stock order with the current ticker price and updates portfolio.
 
         Required parameters:
@@ -170,7 +170,6 @@ def stock_orders():
     else:
         return jsonify({"error":"Invalid action!","action":data['action'] }), 400
 
-
     # inserts order data into a separate orders collection
     order_id = mongo.db.orders.insert_one({**data, "user_id": ObjectId(data['user_id']), "price": stock_price }).inserted_id
 
@@ -187,6 +186,7 @@ def stock_orders():
                     "ticker": data['ticker'], 
                     "quantity": data['quantity'], 
                     "order price": stock_price }), 201
+
 '''
 @stock_blueprint.route('/orders', methods=['POST'])
 def sell_stock():
@@ -247,7 +247,7 @@ def sell_stock():
                     "price of shares sold":data['quantity']*float(api_response['Global Quote']['05. price'])})
 '''
 @stock_blueprint.route('/orders/<userid>', methods=['GET'])
-def get_order_history(userid):
+def get_order(userid):
     ''' Returns information on expired Options contracts 
         
         Args:

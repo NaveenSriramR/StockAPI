@@ -3,8 +3,8 @@ from .config import TestConfig, DevConfig
 from .extensions import mongo, cors, sql
 from .stock_routes import stock_blueprint
 from .user_routes import user_blueprint
+from .user_routes_sql import user_blueprint as user_sql_blueprint
 from flask_migrate import Migrate
-from .models import User, Portfolio
 
 def create_app(config_mode):
     app = Flask(__name__)
@@ -24,9 +24,10 @@ def create_app(config_mode):
     def get_hello():    
         return "Ye the server is working!!"
 
-    # Register blueprints
-    app.register_blueprint(stock_blueprint, url_prefix='/stocks')
-    app.register_blueprint(user_blueprint, url_prefix='/users')
+    # Register mongo blueprints
+    app.register_blueprint(stock_blueprint, url_prefix='/mongo/stocks') 
+    app.register_blueprint(user_blueprint, url_prefix='/mongo/users')
+    app.register_blueprint(user_sql_blueprint, url_prefix='/sql/users')
 
     return app
 
