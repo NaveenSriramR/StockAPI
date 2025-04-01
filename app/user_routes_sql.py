@@ -12,7 +12,7 @@ def get_users():
 
     users = User.query.all() # Fetch all users
                         #    ,{"_id": {"$toString": "$_id"},"email":1,"username":1})  # Projects user data with _id converted to String from ObjectId    
-    users_list = [{"id": user.id, "username": user.username, "email": user.email} for user in users]
+    users_list = [{"id": user.id, "username": user.username, "email": user.email, "created_at": user.created_at} for user in users]
         
     return jsonify({"users":users_list}),200
 
